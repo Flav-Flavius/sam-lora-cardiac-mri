@@ -11,7 +11,7 @@ MODEL:
     TARGET_MODULES: [q_proj, k_proj, v_proj, o_proj]
 
 TRAIN:
-  EPOCHS: 10
+  EPOCHS: 40
   BATCH_SIZE: 8
   LR: 5.0e-5
   WEIGHT_DECAY: 0.01
