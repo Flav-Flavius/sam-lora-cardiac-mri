@@ -170,7 +170,7 @@ def main() -> None:
 
     trainable = sum(p.numel() for p in sam_lora.parameters() if p.requires_grad)
     total = sum(p.numel() for p in sam_lora.parameters())
-    print(f"Parametri trainabili: {trainable:,} / {total:,} ({100*trainable/total:.2f}%)")
+    print(f"Trainable parameters: {trainable:,} / {total:,} ({100*trainable/total:.2f}%)")
 
     # Dataset și DataLoader
     ds_train = SliceDataset(
