@@ -260,10 +260,10 @@ def main() -> None:
             torch.save(ckpt, ckpt_path)
             if drive_ckpt:
                 torch.save(ckpt, drive_ckpt)
-                print(f"  → Salvat pe Drive: {drive_ckpt}")
+                print(f"  → Saved to Drive: {drive_ckpt}")
 
     print(f"\nTraining complet. Best loss: {best_loss:.4f}")
-    print(f"Checkpoint salvat la: {ckpt_path}")
+    print(f"Checkpoint saved at: {ckpt_path}")
 
 
 if __name__ == "__main__":
