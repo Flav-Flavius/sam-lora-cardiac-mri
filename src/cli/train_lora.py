@@ -88,6 +88,8 @@ def sam_forward(sam_model, image_np: np.ndarray, mask_np: np.ndarray, device: to
     img = (img * 255.0)
     image_rgb = np.stack([img, img, img], axis=0)  # (3, H, W)
     image_t = torch.from_numpy(image_rgb).float().unsqueeze(0).to(device)  # (1, 3, H, W)
+# SAM ViT-B necesită 1024x1024
+    image_t = torch.nn.functional.interpolate(image_t, size=(1024, 1024), mode="bilinear", align_corners=False)
 
     # 2. Image encoder — LoRA e aici, deci NO no_grad()
     image_embeddings = sam_model.image_encoder(image_t)  # (1, 256, 64, 64)
