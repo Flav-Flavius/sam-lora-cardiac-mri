@@ -175,12 +175,15 @@ def main() -> None:
         root=data_root, split="train",
         img_size=(img_h, img_w), has_masks=True
     )
+
+
     dl = DataLoader(
-        ds_train,
-        batch_size=1,  # procesăm slice cu slice (SAM predictor API limitare)
-        shuffle=True,
-        num_workers=0  # 0 pe Colab pentru stabilitate
-    )
+    ds_train,
+    batch_size=1,
+    shuffle=True,
+    num_workers=0,
+    collate_fn=lambda batch: batch[0]  # returnează Sample direct, fără collate
+)
 
     device = predictor.device
     sam_lora.to(device)
@@ -227,13 +230,11 @@ def main() -> None:
         valid_steps = 0
 
         for batch in dl:
-            images = batch.image.squeeze(1).numpy()  # (B, H, W)
-            masks = batch.mask.numpy()               # (B, H, W)
-
-            for i in range(len(images)):
-                loss = sam_forward(sam_lora, images[i], masks[i], device)
-                if loss is None:
-                    continue
+            image_np = batch.image.squeeze(0).squeeze(0).numpy()  # (H,W)
+            mask_np = batch.mask.squeeze(0).numpy()               # (H,W)
+            loss = sam_forward(sam_lora, image_np, mask_np, device)
+            if loss is None:
+                continue
 
                 optim.zero_grad()
                 loss.backward()          # grad real, nu placeholder
