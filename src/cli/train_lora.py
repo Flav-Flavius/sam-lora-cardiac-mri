@@ -3,7 +3,7 @@
 Training loop corect: graful PyTorch rămâne intact de la
 image encoder → mask decoder → loss → .backward().
 
-Modificări față de versiunea originală (Cursor-generated):
+Modificări față de versiunea originală:
 - Eliminat predictor API (numpy) din training loop
 - Loss calculat direct pe tensori PyTorch
 - Backprop real pe BCE + Dice loss față de GT masks
@@ -52,7 +52,7 @@ def combined_loss(pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
 
 def build_point_prompt(mask_np: np.ndarray, device: torch.device):
     """Construiește prompt de punct din centrul de masă al GT mask.
-    
+
     Returnează tensori PyTorch gata pentru SAM prompt encoder.
     """
     ys, xs = np.where(mask_np > 0)
@@ -76,7 +76,7 @@ def build_point_prompt(mask_np: np.ndarray, device: torch.device):
 
 def sam_forward(sam_model, image_np: np.ndarray, mask_np: np.ndarray, device: torch.device):
     """Forward pass complet cu grad graph intact pentru training.
-    
+
     Diferența față de predictor API:
     - Totul rămâne tensor PyTorch
     - Nu se convertește în numpy până la final
@@ -88,7 +88,7 @@ def sam_forward(sam_model, image_np: np.ndarray, mask_np: np.ndarray, device: to
     img = (img * 255.0)
     image_rgb = np.stack([img, img, img], axis=0)  # (3, H, W)
     image_t = torch.from_numpy(image_rgb).float().unsqueeze(0).to(device)  # (1, 3, H, W)
-# SAM ViT-B necesită 1024x1024
+    # SAM ViT-B necesită 1024x1024
     image_t = torch.nn.functional.interpolate(image_t, size=(1024, 1024), mode="bilinear", align_corners=False)
 
     # 2. Image encoder — LoRA e aici, deci NO no_grad()
@@ -134,7 +134,7 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--config", required=True)
     ap.add_argument("--drive-output", default=None,
-                    help="Cale Google Drive pentru salvare checkpoint (ex: /content/drive/MyDrive/sam-lora-cardiac-mri/checkpoints)")
+                    help="Cale Google Drive pentru salvare checkpoint")
     args = ap.parse_args()
 
     with open(args.config, "r") as f:
@@ -178,14 +178,13 @@ def main() -> None:
         img_size=(img_h, img_w), has_masks=True
     )
 
-
     dl = DataLoader(
-    ds_train,
-    batch_size=1,
-    shuffle=True,
-    num_workers=0,
-    collate_fn=lambda batch: batch[0]  # returnează Sample direct, fără collate
-)
+        ds_train,
+        batch_size=1,
+        shuffle=True,
+        num_workers=0,
+        collate_fn=lambda batch: batch[0]  # returnează Sample direct, fără collate
+    )
 
     device = predictor.device
     sam_lora.to(device)
@@ -238,17 +237,17 @@ def main() -> None:
             if loss is None:
                 continue
 
-                optim.zero_grad()
-                loss.backward()          # grad real, nu placeholder
-                torch.nn.utils.clip_grad_norm_(
-                    [p for p in sam_lora.parameters() if p.requires_grad], 1.0
-                )
-                optim.step()
-                scheduler.step()
+            optim.zero_grad()
+            loss.backward()          # grad real, nu placeholder
+            torch.nn.utils.clip_grad_norm_(
+                [p for p in sam_lora.parameters() if p.requires_grad], 1.0
+            )
+            optim.step()
+            scheduler.step()
 
-                running_loss += loss.item()
-                valid_steps += 1
-                global_step += 1
+            running_loss += loss.item()
+            valid_steps += 1
+            global_step += 1
 
         avg_loss = running_loss / max(1, valid_steps)
         lr_now = scheduler.get_last_lr()[0]
