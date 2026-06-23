@@ -1,0 +1,24 @@
+# Date si modele - prea mari pentru GitHub
+data/
+checkpoints/
+outputs/
+
+# Mediu virtual Python
+venv-sam/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Jupyter
+.ipynb_checkpoints/
+
+# OS
+.DS_Store
+
+# IDE
+.idea/
+.vscode/

@@ -1,0 +1,5 @@
+[console_scripts]
+sam-lora-convert-dicom = cli.convert_dicom:main
+sam-lora-eval-cross-datasets = cli.eval_cross_datasets:main
+sam-lora-eval-zero-shot = cli.eval_zero_shot:main
+sam-lora-train-lora = cli.train_lora:main

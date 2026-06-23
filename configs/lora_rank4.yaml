@@ -1,0 +1,30 @@
+DATA:
+  ROOT: data/interim/ACDC
+  IMG_SIZE: [256, 256]
+
+MODEL:
+  SAM_VARIANT: vit_b
+  CHECKPOINT: checkpoints/sam_vit_b_01ec64.pth
+  LORA:
+    RANK: 4
+    ALPHA: 8
+    TARGET_MODULES: [q_proj, k_proj, v_proj, o_proj]
+
+TRAIN:
+  EPOCHS: 40
+  BATCH_SIZE: 8
+  LR: 5.0e-5
+  WEIGHT_DECAY: 0.01
+  WARMUP_RATIO: 0.05
+  SEED: 42
+  NUM_WORKERS: 4
+
+PROMPT:
+  TYPE: point
+  GRID_DENSITY: 5
+
+LOG:
+  WANDB: false
+  MLFLOW: false
+  OUTPUT_DIR: outputs/train_lora/rank4
+

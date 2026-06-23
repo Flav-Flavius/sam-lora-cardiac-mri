@@ -1,0 +1,69 @@
+[project]
+name = "sam-lora-acdc"
+version = "0.1.0"
+description = "Evaluating and Adapting SAM for Medical Images with LoRA (ACDC)"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [
+  { name = "Cenuse Flavius Dragos" }
+]
+dependencies = [
+  "torch",  # install platform-appropriate wheel (MPS on macOS)
+  "torchvision",
+  "torchaudio",
+  "segment-anything",
+  "peft>=0.11.0",
+  "transformers>=4.41.0",
+  "opencv-python",
+  "nibabel",
+  "pydicom",
+  "SimpleITK",
+  "scikit-image",
+  "scikit-learn",
+  "numpy",
+  "matplotlib",
+  "torchmetrics",
+  "wandb",
+  "mlflow",
+  "PyYAML",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest",
+  "black",
+  "isort",
+  "flake8",
+]
+
+[project.scripts]
+sam-lora-convert-dicom = "cli.convert_dicom:main"
+sam-lora-eval-zero-shot = "cli.eval_zero_shot:main"
+sam-lora-train-lora = "cli.train_lora:main"
+sam-lora-eval-cross-datasets = "cli.eval_cross_datasets:main"
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = [
+  "sam_lora*",
+  "cli*",
+]
+
+[tool.isort]
+profile = "black"
+
+[tool.black]
+line-length = 100
+
+[tool.flake8]
+max-line-length = 100
+extend-ignore = ["E203", "W503"]
+

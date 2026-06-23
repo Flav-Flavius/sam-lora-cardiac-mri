@@ -1,0 +1,23 @@
+DATA:
+  ROOT: data/interim/ACDC
+  RAW_ROOT: data/raw/ACDC
+  SPLIT_SEED: 42
+  VAL_RATIO: 0.1
+  TEST_RATIO: 0.2
+  LABELS: [LVC, MYO, RVC]
+  ID_MAP: {bg: 0, LVC: 1, MYO: 2, RVC: 3}
+  IMG_SIZE: [256, 256]
+  SPACING_MM: 1.25
+  NORM: zscore  # or percentile
+
+PROMPT:
+  TYPE: point  # point | box | grid
+  GRID_DENSITY: 5
+  POINT_JITTER: 0
+  BOX_SCALE: 1.0
+
+LOG:
+  WANDB: false
+  MLFLOW: false
+  OUTPUT_DIR: outputs
+

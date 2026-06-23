@@ -1,0 +1,25 @@
+DATA:
+  ROOT: data/interim/ACDC
+  IMG_SIZE: [256, 256]
+
+PROMPT:
+  TYPE: point  # point | box | grid
+  GRID_DENSITY: 5
+  POINT_JITTER: 4
+  BOX_SCALE: 1.0
+
+MODEL:
+  SAM_VARIANT: vit_b
+  CHECKPOINT: checkpoints/sam_vit_b_01ec64.pth  # use default SAM checkpoint from segment-anything if available
+
+EVAL:
+  METRICS: [dice, hd95, bf]
+  SAVE_VIS: true
+  SEED: 42
+  BATCH_SIZE: 8
+
+LOG:
+  WANDB: false
+  MLFLOW: false
+  OUTPUT_DIR: outputs/zero_shot
+

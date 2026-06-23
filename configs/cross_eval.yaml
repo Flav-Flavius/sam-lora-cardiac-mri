@@ -1,0 +1,27 @@
+DATASETS:
+  - NAME: MnMs
+    ROOT: data/interim/MnMs
+  - NAME: Sunnybrook
+    ROOT: data/interim/Sunnybrook
+
+MODEL:
+  SAM_VARIANT: vit_b
+  CHECKPOINT: null
+  WEIGHTS: null  # path to fine-tuned LoRA weights
+
+PROMPT:
+  TYPE: box
+  GRID_DENSITY: 5
+  POINT_JITTER: 0
+
+EVAL:
+  METRICS: [dice, hd95, bf]
+  SAVE_VIS: true
+  SEED: 42
+  BATCH_SIZE: 8
+
+LOG:
+  WANDB: false
+  MLFLOW: false
+  OUTPUT_DIR: outputs/cross_eval
+
