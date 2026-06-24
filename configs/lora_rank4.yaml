@@ -8,7 +8,7 @@ MODEL:
   LORA:
     RANK: 4
     ALPHA: 8
-    TARGET_MODULES: [q_proj, k_proj, v_proj, o_proj]
+    TARGET_MODULES: [qkv]
 
 TRAIN:
   EPOCHS: 40
@@ -27,4 +27,3 @@ LOG:
   WANDB: false
   MLFLOW: false
   OUTPUT_DIR: outputs/train_lora/rank4
-

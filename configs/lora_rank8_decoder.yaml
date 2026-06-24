@@ -6,9 +6,9 @@ MODEL:
   SAM_VARIANT: vit_b
   CHECKPOINT: checkpoints/sam_vit_b_01ec64.pth
   LORA:
-    RANK: 16
-    ALPHA: 32
-    TARGET_MODULES: [qkv]
+    RANK: 8
+    ALPHA: 16
+    TARGET_MODULES: [q_proj, k_proj, v_proj, o_proj]
 
 TRAIN:
   EPOCHS: 40
@@ -26,4 +26,4 @@ PROMPT:
 LOG:
   WANDB: false
   MLFLOW: false
-  OUTPUT_DIR: outputs/train_lora/rank16
+  OUTPUT_DIR: outputs/train_lora/rank8_decoder
