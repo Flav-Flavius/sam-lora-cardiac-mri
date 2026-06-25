@@ -9,6 +9,7 @@ Modificări față de versiunea originală:
 - Backprop real pe BCE + Dice loss față de GT masks
 - Adăugat scheduler cu warmup
 - Adăugat salvare checkpoint pe Google Drive
+- Adăugat salvare last.pt la fiecare epocă (resume support)
 """
 
 from __future__ import annotations
@@ -213,19 +214,43 @@ def main() -> None:
     out_dir = Path(log_cfg.get("OUTPUT_DIR", f"outputs/train_lora/rank{rank}"))
     out_dir.mkdir(parents=True, exist_ok=True)
     ckpt_path = out_dir / "best.pt"
+    last_path = out_dir / "last.pt"
 
     # Google Drive output (opțional)
     drive_ckpt = None
+    last_drive = None
     if args.drive_output:
         drive_dir = Path(args.drive_output) / f"rank{rank}"
         drive_dir.mkdir(parents=True, exist_ok=True)
         drive_ckpt = drive_dir / "best.pt"
+        last_drive = drive_dir / "last.pt"
+
+    # Resume din last.pt dacă există
+    start_epoch = 0
+    best_loss = float("inf")
+    if last_drive and Path(last_drive).exists():
+        print(f"Resuming from Drive: {last_drive}")
+        resume = torch.load(last_drive, map_location=device)
+        sam_lora.load_state_dict(resume["state_dict"])
+        optim.load_state_dict(resume["optim"])
+        scheduler.load_state_dict(resume["scheduler"])
+        start_epoch = resume["epoch"]
+        best_loss = resume.get("best_loss", float("inf"))
+        print(f"  → Resuming from epoch {start_epoch + 1}/{epochs} | best_loss so far: {best_loss:.4f}")
+    elif last_path.exists():
+        print(f"Resuming from local: {last_path}")
+        resume = torch.load(last_path, map_location=device)
+        sam_lora.load_state_dict(resume["state_dict"])
+        optim.load_state_dict(resume["optim"])
+        scheduler.load_state_dict(resume["scheduler"])
+        start_epoch = resume["epoch"]
+        best_loss = resume.get("best_loss", float("inf"))
+        print(f"  → Resuming from epoch {start_epoch + 1}/{epochs} | best_loss so far: {best_loss:.4f}")
 
     # Training loop
-    best_loss = float("inf")
     global_step = 0
 
-    for epoch in range(epochs):
+    for epoch in range(start_epoch, epochs):
         sam_lora.train()
         running_loss = 0.0
         valid_steps = 0
@@ -253,14 +278,28 @@ def main() -> None:
         lr_now = scheduler.get_last_lr()[0]
         print(f"Epoch {epoch+1}/{epochs} | loss={avg_loss:.4f} | lr={lr_now:.2e} | steps={valid_steps}")
 
-        # Salvare cel mai bun checkpoint
+        # Salvare best.pt doar când loss-ul scade
         if avg_loss < best_loss:
             best_loss = avg_loss
             ckpt = {"state_dict": sam_lora.state_dict(), "cfg": cfg, "epoch": epoch+1, "loss": best_loss}
             torch.save(ckpt, ckpt_path)
             if drive_ckpt:
                 torch.save(ckpt, drive_ckpt)
-                print(f"  → Saved to Drive: {drive_ckpt}")
+                print(f"  → Saved best to Drive: {drive_ckpt}")
+
+        # Salvare last.pt la fiecare epocă (pentru resume)
+        last_ckpt = {
+            "state_dict": sam_lora.state_dict(),
+            "optim": optim.state_dict(),
+            "scheduler": scheduler.state_dict(),
+            "epoch": epoch + 1,
+            "best_loss": best_loss,
+            "cfg": cfg,
+        }
+        torch.save(last_ckpt, last_path)
+        if last_drive:
+            torch.save(last_ckpt, last_drive)
+            print(f"  → Saved last to Drive: {last_drive}")
 
     print(f"\nTraining complet. Best loss: {best_loss:.4f}")
     print(f"Checkpoint saved at: {ckpt_path}")
