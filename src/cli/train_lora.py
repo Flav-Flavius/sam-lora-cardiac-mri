@@ -75,21 +75,25 @@ def build_point_prompt(mask_np: np.ndarray, structure_id: int, device: torch.dev
 # ---------------------------------------------------------------------------
 
 def encode_image(sam_model, image_np: np.ndarray, device: torch.device):
-    """Trece imaginea prin image_encoder o singură dată.
+    """Trece imaginea prin image_encoder o singură dată, cu normalizare ImageNet.
 
-    LoRA e în image_encoder, deci NU folosim no_grad() — gradientul trebuie
-    să curgă înapoi prin encoder către parametrii LoRA. Embedding-ul rezultat
-    se refolosește pentru toate structurile din slice (encoder-ul e partea
-    scumpă; prompt_encoder + mask_decoder sunt ieftine).
+    SAM ViT-B a fost antrenat pe intrări normalizate cu statisticile ImageNet.
+    Aplicăm aceeași normalizare (medie/deviație pe canal, scara 0-255) pentru ca
+    encoder-ul să primească intrarea în distribuția pe care o așteaptă.
     """
     img = image_np.astype(np.float32)
     img = (img - img.min()) / max(1e-6, img.max() - img.min())
     img = (img * 255.0)
     image_rgb = np.stack([img, img, img], axis=0)  # (3, H, W)
     image_t = torch.from_numpy(image_rgb).float().unsqueeze(0).to(device)  # (1, 3, H, W)
-    # SAM ViT-B necesită 1024x1024
     image_t = torch.nn.functional.interpolate(image_t, size=(1024, 1024), mode="bilinear", align_corners=False)
-    return sam_model.image_encoder(image_t)  # (1, 256, 64, 64)
+
+    # Normalizare ImageNet (statisticile cu care a fost antrenat encoder-ul SAM)
+    pixel_mean = torch.tensor([123.675, 116.28, 103.53], device=device).view(1, 3, 1, 1)
+    pixel_std = torch.tensor([58.395, 57.12, 57.375], device=device).view(1, 3, 1, 1)
+    image_t = (image_t - pixel_mean) / pixel_std
+
+    return sam_model.image_encoder(image_t)
 
 
 # ---------------------------------------------------------------------------
