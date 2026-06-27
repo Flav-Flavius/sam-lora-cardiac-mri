@@ -199,7 +199,11 @@ def main() -> None:
 
     dl = DataLoader(
         ds_train,
-        batch_size=1,
+        batch_size=1,  # FIX hardcodat: bucla per-structura proceseaza O felie  odata
+                       # (encode_image + iteratie pe structurile prezente in acea felie).
+                       # collate_fn=batch[0] presupune un singur Sample. BATCH_SIZE din
+                       # config e afisat ca hiperparametru dar NU e citit aici intentionat:
+                       # >1 ar rupe bucla. Constrangere arhitecturala, nu omisiune.
         shuffle=True,
         num_workers=0,
         collate_fn=lambda batch: batch[0]  # returnează Sample direct, fără collate
