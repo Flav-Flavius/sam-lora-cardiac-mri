@@ -1,15 +1,14 @@
-"""LoRA fine-tuning CLI for SAM on ACDC slices.
+"""LoRA fine-tuning CLI for SAM on ACDC slices — PER-STRUCTURĂ.
 
 Training loop corect: graful PyTorch rămâne intact de la
 image encoder → mask decoder → loss → .backward().
 
-Modificări față de versiunea originală:
-- Eliminat predictor API (numpy) din training loop
-- Loss calculat direct pe tensori PyTorch
-- Backprop real pe BCE + Dice loss față de GT masks
-- Adăugat scheduler cu warmup
-- Adăugat salvare checkpoint pe Google Drive
-- Adăugat salvare last.pt la fiecare epocă (resume support)
+Per-structură (LVC=1, MYO=2, RVC=3):
+- prompt din centroidul structurii k (mask == k)
+- țintă binară per structură (mask == k)
+- embedding cache: image_encoder O DATĂ per slice, refolosit pentru toate structurile
+- un pas de optimizare per slice, pe loss-ul agregat al structurilor prezente
+  (aliniat cu SAMed și MedSAM: un obiectiv per imagine, un backward)
 """
 
 from __future__ import annotations
@@ -40,7 +39,7 @@ def dice_loss(pred: torch.Tensor, target: torch.Tensor, eps: float = 1e-6) -> to
 
 
 def combined_loss(pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
-    """BCE + Dice — standard în segmentare medicală."""
+    """BCE + Dice — standard în segmentare medicală (neponderat, ca MedSAM)."""
     bce = F.binary_cross_entropy_with_logits(pred, target)
     pred_sigmoid = torch.sigmoid(pred)
     dice = dice_loss(pred_sigmoid, target)
@@ -48,15 +47,15 @@ def combined_loss(pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
 
 
 # ---------------------------------------------------------------------------
-# Prompt encoding helper
+# Prompt encoding helper — per structură
 # ---------------------------------------------------------------------------
 
-def build_point_prompt(mask_np: np.ndarray, device: torch.device):
-    """Construiește prompt de punct din centrul de masă al GT mask.
+def build_point_prompt(mask_np: np.ndarray, structure_id: int, device: torch.device):
+    """Construiește prompt de punct din centrul de masă al structurii `structure_id`.
 
     Returnează tensori PyTorch gata pentru SAM prompt encoder.
     """
-    ys, xs = np.where(mask_np > 0)
+    ys, xs = np.where(mask_np == structure_id)
     if xs.size == 0:
         return None, None
 
@@ -72,18 +71,17 @@ def build_point_prompt(mask_np: np.ndarray, device: torch.device):
 
 
 # ---------------------------------------------------------------------------
-# Single forward pass prin SAM cu grad graph intact
+# Image encoding — O SINGURĂ DATĂ per slice (embedding cache)
 # ---------------------------------------------------------------------------
 
-def sam_forward(sam_model, image_np: np.ndarray, mask_np: np.ndarray, device: torch.device):
-    """Forward pass complet cu grad graph intact pentru training.
+def encode_image(sam_model, image_np: np.ndarray, device: torch.device):
+    """Trece imaginea prin image_encoder o singură dată.
 
-    Diferența față de predictor API:
-    - Totul rămâne tensor PyTorch
-    - Nu se convertește în numpy până la final
-    - .backward() poate propaga gradienți până la LoRA params
+    LoRA e în image_encoder, deci NU folosim no_grad() — gradientul trebuie
+    să curgă înapoi prin encoder către parametrii LoRA. Embedding-ul rezultat
+    se refolosește pentru toate structurile din slice (encoder-ul e partea
+    scumpă; prompt_encoder + mask_decoder sunt ieftine).
     """
-    # 1. Pregătire imagine — grayscale → RGB, normalizare
     img = image_np.astype(np.float32)
     img = (img - img.min()) / max(1e-6, img.max() - img.min())
     img = (img * 255.0)
@@ -91,14 +89,24 @@ def sam_forward(sam_model, image_np: np.ndarray, mask_np: np.ndarray, device: to
     image_t = torch.from_numpy(image_rgb).float().unsqueeze(0).to(device)  # (1, 3, H, W)
     # SAM ViT-B necesită 1024x1024
     image_t = torch.nn.functional.interpolate(image_t, size=(1024, 1024), mode="bilinear", align_corners=False)
+    return sam_model.image_encoder(image_t)  # (1, 256, 64, 64)
 
-    # 2. Image encoder — LoRA e aici, deci NO no_grad()
-    image_embeddings = sam_model.image_encoder(image_t)  # (1, 256, 64, 64)
 
-    # 3. Prompt encoding
-    coords, labels = build_point_prompt(mask_np, device)
+# ---------------------------------------------------------------------------
+# Forward pentru O structură, refolosind image_embeddings precalculat
+# ---------------------------------------------------------------------------
+
+def sam_forward(sam_model, image_embeddings, mask_np: np.ndarray, structure_id: int, device: torch.device):
+    """Forward pentru structura `structure_id`, cu image_embeddings precalculat.
+
+    Encoder-ul NU rulează aici (a rulat o dată în encode_image). Graful rămâne
+    intact: backward din loss propagă prin decoder + prin image_embeddings
+    înapoi la LoRA din encoder.
+    """
+    # Prompt encoding pentru structura k
+    coords, labels = build_point_prompt(mask_np, structure_id, device)
     if coords is None:
-        return None  # slice fără GT, skip
+        return None  # structura absentă în acest slice
 
     sparse_embeddings, dense_embeddings = sam_model.prompt_encoder(
         points=(coords, labels),
@@ -106,7 +114,7 @@ def sam_forward(sam_model, image_np: np.ndarray, mask_np: np.ndarray, device: to
         masks=None,
     )
 
-    # 4. Mask decoder — returnează logits (pre-sigmoid)
+    # Mask decoder — returnează logits (pre-sigmoid)
     low_res_masks, _ = sam_model.mask_decoder(
         image_embeddings=image_embeddings,
         image_pe=sam_model.prompt_encoder.get_dense_pe(),
@@ -116,13 +124,13 @@ def sam_forward(sam_model, image_np: np.ndarray, mask_np: np.ndarray, device: to
     )
     # low_res_masks: (1, 1, 256, 256) — logits
 
-    # 5. Upsample la dimensiunea originală
+    # Upsample la dimensiunea originală
     H, W = mask_np.shape
     pred_logits = F.interpolate(low_res_masks, size=(H, W), mode="bilinear", align_corners=False)
     pred_logits = pred_logits.squeeze(0).squeeze(0)  # (H, W)
 
-    # 6. Ground truth tensor
-    target = torch.from_numpy((mask_np > 0).astype(np.float32)).to(device)  # (H, W)
+    # Ground truth binar pentru structura k
+    target = torch.from_numpy((mask_np == structure_id).astype(np.float32)).to(device)  # (H, W)
 
     return combined_loss(pred_logits, target)
 
@@ -136,6 +144,8 @@ def main() -> None:
     ap.add_argument("--config", required=True)
     ap.add_argument("--drive-output", default=None,
                     help="Cale Google Drive pentru salvare checkpoint")
+    ap.add_argument("--max-slices", type=int, default=None,
+                    help="Limitează nr. de slice-uri per epocă (smoke test local). None = tot setul.")
     args = ap.parse_args()
 
     with open(args.config, "r") as f:
@@ -146,6 +156,10 @@ def main() -> None:
     model_cfg = cfg["MODEL"]
     train_cfg = cfg["TRAIN"]
     log_cfg = cfg["LOG"]
+
+    # Structurile de segmentat per-structură (1=LVC, 2=MYO, 3=RVC)
+    structures = list(train_cfg.get("STRUCTURES", [1, 2, 3]))
+    print(f"Structures (per-structure training): {structures}")
 
     # Seed pentru reproductibilitate
     seed = int(train_cfg.get("SEED", 42))
@@ -199,7 +213,8 @@ def main() -> None:
 
     # Scheduler cu warmup liniar
     epochs = int(train_cfg.get("EPOCHS", 40))
-    total_steps = epochs * len(dl)
+    steps_per_epoch = args.max_slices if args.max_slices else len(dl)
+    total_steps = epochs * steps_per_epoch
     warmup_steps = int(total_steps * float(train_cfg.get("WARMUP_RATIO", 0.05)))
 
     def lr_lambda(step):
@@ -253,30 +268,49 @@ def main() -> None:
     for epoch in range(start_epoch, epochs):
         sam_lora.train()
         running_loss = 0.0
-        valid_steps = 0
+        valid_steps = 0      # slice-uri procesate (cel puțin o structură prezentă)
+        struct_count = 0     # perechi (slice, structură) procesate — pentru diagnostic
 
-        for batch in dl:
+        for i, batch in enumerate(dl):
+            if args.max_slices and i >= args.max_slices:
+                break
+
             image_np = batch.image.squeeze(0).squeeze(0).numpy()  # (H,W)
             mask_np = batch.mask.squeeze(0).numpy()               # (H,W)
-            loss = sam_forward(sam_lora, image_np, mask_np, device)
-            if loss is None:
-                continue
+
+            # Encoder o singură dată per slice (embedding cache)
+            image_embeddings = encode_image(sam_lora, image_np, device)
+
+            # Acumulează loss-ul structurilor prezente în acest slice
+            slice_loss = None
+            for structure_id in structures:
+                if (mask_np == structure_id).sum() == 0:
+                    continue  # structura absentă în acest slice
+                loss_k = sam_forward(sam_lora, image_embeddings, mask_np, structure_id, device)
+                if loss_k is None:
+                    continue
+                slice_loss = loss_k if slice_loss is None else slice_loss + loss_k
+                struct_count += 1
+
+            if slice_loss is None:
+                continue  # niciun structură prezentă (slice gol)
 
             optim.zero_grad()
-            loss.backward()          # grad real, nu placeholder
+            slice_loss.backward()    # un singur backward per slice, fără retain_graph
             torch.nn.utils.clip_grad_norm_(
                 [p for p in sam_lora.parameters() if p.requires_grad], 1.0
             )
             optim.step()
             scheduler.step()
 
-            running_loss += loss.item()
+            running_loss += slice_loss.item()
             valid_steps += 1
             global_step += 1
 
         avg_loss = running_loss / max(1, valid_steps)
         lr_now = scheduler.get_last_lr()[0]
-        print(f"Epoch {epoch+1}/{epochs} | loss={avg_loss:.4f} | lr={lr_now:.2e} | steps={valid_steps}")
+        print(f"Epoch {epoch+1}/{epochs} | loss={avg_loss:.4f} | lr={lr_now:.2e} "
+              f"| slices={valid_steps} | struct_pairs={struct_count}")
 
         # Salvare best.pt doar când loss-ul scade
         if avg_loss < best_loss:
