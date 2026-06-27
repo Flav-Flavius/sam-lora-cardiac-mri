@@ -180,7 +180,9 @@ def main() -> None:
             mask_np = sample.mask.numpy()               # (H,W) cu 0/1/2/3
 
             # encode O DATA per felie (cu normalizare ImageNet — importat din train)
-            image_embeddings = encode_image(sam_model, image_np, device)
+            # no_grad: la evaluare nu antrenam, deci nu construim graf (altfel OOM la zero-shot)
+            with torch.no_grad():
+                image_embeddings = encode_image(sam_model, image_np, device)
 
             row = [sample.meta["id"]]
             dice_this_slice = []
